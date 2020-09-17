@@ -1,5 +1,16 @@
 terraform {
-  experiments = [variable_validation]
+  required_providers {
+    digitalocean = {
+      source = "digitalocean/digitalocean"
+    }
+    helm = {
+      source = "hashicorp/helm"
+    }
+    local = {
+      source = "hashicorp/local"
+    }
+  }
+  required_version = ">= 0.13"
 }
 
 variable "do_token" {
@@ -106,6 +117,22 @@ resource "digitalocean_loadbalancer" "public" {
   }
 
   droplet_tag = "group-${var.group_number}"
+  depends_on = [
+    digitalocean_certificate.cert,
+  ]
+}
+
+resource "digitalocean_record" "default" {
+  domain = data.digitalocean_domain.default.name
+  type   = "A"
+  name   = "group${var.group_number}"
+  # this creates the subdomain, but it's still the wrong IP
+  # TODO: try: kubernetes_service.frontend_external.load_balancer_ingress.0.ip
+  value = digitalocean_loadbalancer.public.ip
+
+  depends_on = [
+    digitalocean_loadbalancer.public,
+  ]
 }
 
 resource "local_file" "k8s_config" {
@@ -120,6 +147,14 @@ provider "helm" {
     token                  = digitalocean_kubernetes_cluster.k8s_cluster.kube_config[0].token
     cluster_ca_certificate = base64decode(digitalocean_kubernetes_cluster.k8s_cluster.kube_config[0].cluster_ca_certificate)
   }
+}
+
+# Apply Boutique Shop Helm chart
+
+resource "helm_release" "boutique" {
+  name    = "boutique"
+  chart   = "../extras/boutique"
+  timeout = 600
 }
 
 # Apply Gremlin Helm chart
@@ -148,24 +183,6 @@ resource "helm_release" "gremlin_helm_chart" {
     name  = "gremlin.secret.teamSecret"
     value = var.gremlin_team_secret
   }
-}
-
-# Apply Boutique Shop Helm chart
-
-resource "helm_release" "boutique" {
-  name    = "boutique"
-  chart   = "../extras/boutique"
-  timeout = 600
-}
-
-resource "digitalocean_record" "default" {
-
-  domain = data.digitalocean_domain.default.name
-  type   = "A"
-  name   = "group${var.group_number}"
-  # this creates the subdomain, but it's still the wrong IP
-  # TODO: try: kubernetes_service.frontend_external.load_balancer_ingress.0.ip
-  value = digitalocean_loadbalancer.public.ip
 }
 
 output "do_lb" {
