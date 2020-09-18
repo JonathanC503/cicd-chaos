@@ -53,9 +53,7 @@ variable "gremlin_team_secret" {
   }
 }
 
-data "digitalocean_domain" "default" {
-  name = "punkdata.org"
-}
+
 
 # Set up the DO K8s cluster
 
@@ -81,15 +79,7 @@ resource "digitalocean_kubernetes_cluster" "k8s_cluster" {
   }
 }
 
-resource "digitalocean_certificate" "cert" {
-  name    = "cert-${var.group_number}"
-  type    = "lets_encrypt"
-  domains = ["group${var.group_number}.punkdata.org"]
 
-  lifecycle {
-    create_before_destroy = true
-  }
-}
 
 resource "digitalocean_loadbalancer" "public" {
   name   = "group-${var.group_number}"
@@ -100,16 +90,9 @@ resource "digitalocean_loadbalancer" "public" {
     entry_protocol  = "tcp"
     target_port     = 30001
     target_protocol = "tcp"
-    certificate_id  = digitalocean_certificate.cert.id
   }
 
-  forwarding_rule {
-    entry_port      = 443
-    entry_protocol  = "https"
-    target_port     = 30001
-    target_protocol = "http"
-    certificate_id  = digitalocean_certificate.cert.id
-  }
+
 
   healthcheck {
     port     = 30001
@@ -117,23 +100,8 @@ resource "digitalocean_loadbalancer" "public" {
   }
 
   droplet_tag = "group-${var.group_number}"
-  depends_on = [
-    digitalocean_certificate.cert,
-  ]
 }
 
-resource "digitalocean_record" "default" {
-  domain = data.digitalocean_domain.default.name
-  type   = "A"
-  name   = "group${var.group_number}"
-  # this creates the subdomain, but it's still the wrong IP
-  # TODO: try: kubernetes_service.frontend_external.load_balancer_ingress.0.ip
-  value = digitalocean_loadbalancer.public.ip
-
-  depends_on = [
-    digitalocean_loadbalancer.public,
-  ]
-}
 
 resource "local_file" "k8s_config" {
   content  = digitalocean_kubernetes_cluster.k8s_cluster.kube_config[0].raw_config
