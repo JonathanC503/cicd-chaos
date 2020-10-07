@@ -1,6 +1,9 @@
 version: 2.1
 jobs:
-  build_test:
+  unit_tests:
+    parameters:
+      node-version:
+        type: string
     docker:
       - image: circleci/node:12
     steps:
@@ -17,7 +20,20 @@ jobs:
           path: test-results
       - store_artifacts:
           path: test-results
-  deploy:
+  vuln_scan:
+    docker:
+      - image: shiftleft/sast-scan
+    working_directory: ~/repo
+    steps:
+      - checkout
+      - run:
+          name: Perform Scan
+          command: |
+            scan --build
+      - store_artifacts:
+          path: reports
+          destination: sast-scan-reports          
+  build_docker_image:
     docker:
       - image: circleci/node:12
     steps:
@@ -28,14 +44,19 @@ jobs:
           name: Build Docker image
           command: |
             export TAG=0.1.<< pipeline.number >>
-            export IMAGE_NAME=$CIRCLE_PROJECT_REPONAME
-            docker build -t $DOCKER_LOGIN/$IMAGE_NAME -t $DOCKER_LOGIN/$IMAGE_NAME:$TAG .
-            echo $DOCKER_PWD | docker login -u $DOCKER_LOGIN --password-stdin
-            docker push $DOCKER_LOGIN/$IMAGE_NAME
+            export IMAGE_NAME=nodejs-app/$CIRCLE_PROJECT_REPONAME
+            docker build -t $IMAGE_NAME -t $IMAGE_NAME:$TAG .
+            # echo $DOCKER_PWD | docker login -u $DOCKER_LOGIN --password-stdin
+            # docker push $IMAGE_NAME
 workflows:
-  build_test_deploy:
+  test_deploy:
     jobs:
-      - build_test
-      - deploy:
+      - unit_tests:
+          matrix:
+            parameters:
+              node-version: [11.9.0,13.9.0]
+      - vuln_scan
+      - build_docker_image:
           requires:
-            - build_test
+            - unit_tests
+            - vuln_scan
